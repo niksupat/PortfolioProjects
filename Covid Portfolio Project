@@ -1,0 +1,181 @@
+select * from deaths
+where continent is not ''
+order by 3,4;
+
+-- select data that we're going to be using
+
+select location, date, total_cases, new_cases, total_deaths, population
+from deaths
+order by 1,2;
+
+-- looking at total cases vs total deaths
+
+SELECT 
+    location, 
+    date, 
+    total_cases, 
+    total_deaths, 
+    (CAST(total_deaths AS FLOAT) / NULLIF(CAST(total_cases AS FLOAT), 0)) * 100 AS Deathpercentage
+FROM 
+    deaths
+WHERE location LIKE '%thailand%'
+ORDER BY 
+    1, 2;
+
+-- looking at total cases vs population
+-- shows what percentage of population got covid
+
+SELECT 
+    location, 
+    date, 
+    total_cases, 
+    population, 
+    (CAST(total_cases AS FLOAT) / NULLIF(CAST(population AS FLOAT), 0)) * 100 AS percentofpopulationinfected
+FROM 
+    deaths
+WHERE location LIKE '%thailand%' and continent is not ''
+ORDER BY 
+    1, 2;
+    
+-- looking at countries with highest infection rate vs. population
+
+SELECT 
+    location, 
+    population, 
+    MAX(CAST(total_cases AS REAL)) AS totalinfected, 
+    CAST(MAX(CAST(total_cases AS REAL)) / NULLIF(MAX(CAST(population AS REAL)), 0) AS FLOAT) * 100 AS percentpopulationinfected
+FROM 
+    deaths
+WHERE continent is not ''
+GROUP BY 
+    location, 
+    population
+ORDER BY 
+    percentpopulationinfected DESC;
+
+-- showing countries with highest death count per population, by country
+
+SELECT 
+    location, 
+    population, 
+    MAX(CAST(total_deaths AS REAL)) AS totaldeathcount
+FROM 
+    deaths
+WHERE continent is not ''
+GROUP BY 
+    location
+ORDER BY 
+    totaldeathcount DESC;
+    
+-- showing countries with highest death count per population, by continent
+
+SELECT 
+    continent, 
+    population, 
+    MAX(CAST(total_deaths AS REAL)) AS totaldeathcount
+FROM 
+    deaths
+WHERE continent is not ''
+GROUP BY 
+    continent
+ORDER BY 
+    totaldeathcount DESC;
+    
+-- global numbers
+
+SELECT 
+    date, 
+    SUM(new_cases) AS total_new_cases, 
+    SUM(CAST(new_deaths AS REAL)) AS total_new_deaths,
+    (SUM(CAST(new_deaths AS FLOAT)) / NULLIF(SUM(CAST(new_cases AS FLOAT)), 0)) * 100 AS Deathpercentage
+FROM 
+    deaths
+WHERE continent IS NOT NULL AND continent != ''
+--GROUP BY date
+ORDER BY 
+    1, 2;
+    
+---
+-- Looking at total population vaccinated, by location and date, for example Thailand
+SELECT
+    dea.continent,
+    dea.location,
+    dea.date AS death_date,
+    dea.population,
+    vac.new_vaccinations,
+    SUM(CAST(vac.new_vaccinations AS REAL)) OVER (PARTITION BY vac.location ORDER BY vac.location, vac.date) AS cumulative_country_total,
+    (SUM(CAST(vac.new_vaccinations AS REAL)) OVER (PARTITION BY vac.location ORDER BY vac.location, vac.date) / dea.population) * 100 AS PercentageVaccinated
+FROM
+    deaths dea
+JOIN
+    vaccinations vac ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent IS NOT '' AND dea.location like '%thailand%';
+
+---
+-- Use CTE
+WITH PopvsVac AS (
+    SELECT
+        dea.continent,
+        dea.location,
+        dea.date AS death_date,  -- Explicitly aliasing to avoid ambiguity
+        dea.population,
+        vac.new_vaccinations,
+        SUM(CAST(vac.new_vaccinations AS REAL)) OVER (PARTITION BY vac.location ORDER BY vac.location, vac.date) AS cumulative_country_total
+    FROM
+        deaths dea
+    JOIN
+        vaccinations vac ON dea.location = vac.location AND dea.date = vac.date
+    WHERE dea.continent IS NOT '' --and dea.location = 'Canada'
+)
+SELECT *, (cumulative_country_total/population) * 100
+FROM PopvsVac;
+
+-- TEMP TABLE
+-- CREATE TEMPORARY TABLE statement
+
+DROP TABLE IF EXISTS PercentPopulationVaccinated;
+
+CREATE TEMPORARY TABLE PercentPopulationVaccinated (
+    continent TEXT,
+    location TEXT,
+    date DATETIME,
+    population REAL,
+    new_vaccinations REAL,
+    cumulative_country_total REAL  
+);
+
+INSERT INTO PercentPopulationVaccinated
+SELECT
+    dea.continent,
+    dea.location,
+    dea.date,
+    dea.population,
+    vac.new_vaccinations,
+    SUM(CAST(vac.new_vaccinations AS REAL)) OVER (PARTITION BY vac.location ORDER BY vac.location, vac.date) AS cumulative_country_total
+FROM
+    deaths dea
+JOIN
+    vaccinations vac ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent IS NOT '';--and dea.location = 'Canada'
+
+SELECT *, (cumulative_country_total/population) * 100 AS PercentageVaccinated
+FROM PercentPopulationVaccinated;
+
+-- Creating View to store data for later visualizations
+
+Create View PercentPopulationVaccinated as
+SELECT
+    dea.continent,
+    dea.location,
+    dea.date,
+    dea.population,
+    vac.new_vaccinations,
+    SUM(CAST(vac.new_vaccinations AS REAL)) OVER (PARTITION BY vac.location ORDER BY vac.location, vac.date) AS cumulative_country_total
+FROM
+    deaths dea
+JOIN
+    vaccinations vac ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent IS NOT '';
+
+
+
